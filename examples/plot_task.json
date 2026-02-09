@@ -1,0 +1,9 @@
+{
+  "source_context": "Compare model performance over four evaluation rounds.",
+  "communicative_intent": "Line plot of metric trend across rounds.",
+  "mode": "plot",
+  "raw_data": {
+    "x": [1, 2, 3, 4],
+    "y": [62.5, 68.2, 71.9, 74.6]
+  }
+}

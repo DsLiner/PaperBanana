@@ -1,0 +1,74 @@
+from pathlib import Path
+
+from paperbanana.agents import PaperBananaAgents
+from paperbanana.graph import PaperBananaGraph
+from paperbanana.schema import PipelineConfig, ReferenceExample, PaperBananaTask
+from paperbanana.style_guides import (
+    DEFAULT_DIAGRAM_STYLE_GUIDE,
+    DEFAULT_PLOT_STYLE_GUIDE,
+)
+
+
+def test_mock_pipeline_generates_three_iterations(tmp_path: Path) -> None:
+    task = PaperBananaTask(
+        source_context="A five-agent framework with retrieval, planning, styling, visualization, and critique.",
+        communicative_intent="Overview diagram of the full workflow.",
+    )
+
+    references = [
+        ReferenceExample(
+            ref_id=f"ref_{idx:03d}",
+            source_context="Reference method context.",
+            communicative_intent="Reference diagram intent.",
+        )
+        for idx in range(1, 13)
+    ]
+
+    config = PipelineConfig(
+        output_dir=tmp_path,
+        top_k=10,
+        max_iterations=3,
+        use_mock=True,
+    )
+    graph = PaperBananaGraph(agents=PaperBananaAgents(config=config))
+
+    result = graph.run(
+        task=task, references=references, style_guide=DEFAULT_PLOT_STYLE_GUIDE
+    )
+
+    assert len(result.retrieved_ids) == 10
+    assert len(result.artifact_history) == 3
+    assert Path(result.final_artifact).exists()
+
+
+def test_mock_plot_mode_generates_plot_artifact(tmp_path: Path) -> None:
+    task = PaperBananaTask(
+        source_context="Plot monthly score progression.",
+        communicative_intent="Line chart over months.",
+        mode="plot",
+        raw_data={"x": [1, 2, 3, 4], "y": [10, 12, 15, 18]},
+    )
+
+    references = [
+        ReferenceExample(
+            ref_id=f"ref_{idx:03d}",
+            source_context="Reference method context.",
+            communicative_intent="Reference diagram intent.",
+        )
+        for idx in range(1, 13)
+    ]
+
+    config = PipelineConfig(
+        output_dir=tmp_path,
+        top_k=10,
+        max_iterations=3,
+        use_mock=True,
+    )
+    graph = PaperBananaGraph(agents=PaperBananaAgents(config=config))
+
+    result = graph.run(
+        task=task, references=references, style_guide=DEFAULT_DIAGRAM_STYLE_GUIDE
+    )
+
+    assert result.final_artifact.endswith("plot_iter_03.png")
+    assert Path(result.final_artifact).exists()

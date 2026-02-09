@@ -1,0 +1,86 @@
+[
+  {
+    "ref_id": "ref_001",
+    "source_context": "A multi-agent framework with retrieval, planning, execution, and reflection modules.",
+    "communicative_intent": "Pipeline overview of an agentic research workflow.",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "framework"
+  },
+  {
+    "ref_id": "ref_002",
+    "source_context": "A model architecture diagram showing encoder-decoder blocks and data flow.",
+    "communicative_intent": "Architecture overview with module-level decomposition.",
+    "domain": "Generative & Learning",
+    "diagram_type": "architecture"
+  },
+  {
+    "ref_id": "ref_003",
+    "source_context": "A retrieval-augmented generation system with candidate ranking and context fusion.",
+    "communicative_intent": "End-to-end pipeline for retrieval and response generation.",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "pipeline"
+  },
+  {
+    "ref_id": "ref_004",
+    "source_context": "A visual perception model combining backbone, neck, and detection heads.",
+    "communicative_intent": "Detailed module interaction for a vision model.",
+    "domain": "Vision & Perception",
+    "diagram_type": "architecture"
+  },
+  {
+    "ref_id": "ref_005",
+    "source_context": "A benchmark curation workflow with collection, filtering, categorization, and human validation.",
+    "communicative_intent": "Dataset construction pipeline.",
+    "domain": "Science & Applications",
+    "diagram_type": "pipeline"
+  },
+  {
+    "ref_id": "ref_006",
+    "source_context": "An iterative generation loop where a generator and verifier alternate until convergence.",
+    "communicative_intent": "Feedback-loop framework with iterative refinement.",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "framework"
+  },
+  {
+    "ref_id": "ref_007",
+    "source_context": "A plotting system that translates natural language and tabular data into Matplotlib code.",
+    "communicative_intent": "Code-based statistical plotting pipeline.",
+    "domain": "Science & Applications",
+    "diagram_type": "pipeline"
+  },
+  {
+    "ref_id": "ref_008",
+    "source_context": "A policy optimization workflow with actor-critic and environment rollouts.",
+    "communicative_intent": "Reinforcement learning training loop.",
+    "domain": "Generative & Learning",
+    "diagram_type": "loop"
+  },
+  {
+    "ref_id": "ref_009",
+    "source_context": "A method that uses style transfer constraints to improve figure aesthetics.",
+    "communicative_intent": "Style-guided visual refinement pipeline.",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "pipeline"
+  },
+  {
+    "ref_id": "ref_010",
+    "source_context": "A system-level architecture that combines memory, tools, and planning modules.",
+    "communicative_intent": "System architecture for tool-using agents.",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "architecture"
+  },
+  {
+    "ref_id": "ref_011",
+    "source_context": "A scientific application workflow for protein design with iterative proposal and evaluation.",
+    "communicative_intent": "Application pipeline with verification stages.",
+    "domain": "Science & Applications",
+    "diagram_type": "pipeline"
+  },
+  {
+    "ref_id": "ref_012",
+    "source_context": "A high-level framework diagram with two major phases and cross-phase dependency arrows.",
+    "communicative_intent": "Two-phase framework overview.",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "framework"
+  }
+]
