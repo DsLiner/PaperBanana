@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 Mode = Literal["diagram", "plot"]
 RawData = dict[str, object] | list[dict[str, object]] | None
@@ -21,8 +21,16 @@ class ReferenceExample(BaseModel):
     source_context: str
     communicative_intent: str
     reference_artifact: str | None = None
+    reference_image_path: str | None = None
+    image_observation: str | None = None
     domain: str | None = None
     diagram_type: str | None = None
+
+    @model_validator(mode="after")
+    def _map_legacy_reference_artifact(self) -> "ReferenceExample":
+        if self.reference_image_path is None and self.reference_artifact:
+            self.reference_image_path = self.reference_artifact
+        return self
 
 
 class PipelineConfig(BaseModel):
@@ -32,6 +40,7 @@ class PipelineConfig(BaseModel):
     top_k: int = 10
     max_iterations: int = 3
     use_mock: bool = True
+    strict_non_mock_render: bool = True
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str | None = None
@@ -49,6 +58,8 @@ class PipelineResult(BaseModel):
     planner_description: str
     styled_description: str
     critic_feedback: list[str]
+    render_backend: str
+    warnings: list[str]
 
 
 class PaperBananaState(TypedDict):
@@ -68,3 +79,5 @@ class PaperBananaState(TypedDict):
     iteration: int
     stop_refinement: bool
     final_artifact: str
+    render_backend: str
+    warnings: list[str]
