@@ -1,44 +1,64 @@
-# PaperBanana (LangGraph + LangChain)
+# PaperBanana
 
-This repository implements the core PaperBanana pipeline from the paper **"PaperBanana: Automating Academic Illustration for AI Scientists" (arXiv:2601.23265)**.
+[![arXiv](https://img.shields.io/badge/arXiv-2601.23265-b31b1b.svg)](https://arxiv.org/abs/2601.23265)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/dependency%20manager-uv-6e56cf)](https://docs.astral.sh/uv/)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 
-Implemented workflow:
+LangGraph + LangChain implementation of **PaperBanana: Automating Academic Illustration for AI Scientists**.
 
-1. **Retriever Agent** selects Top-K references.
-2. **Planner Agent** builds an initial diagram description `P`.
-3. **Stylist Agent** refines it with an aesthetic guideline `G` to produce `P*`.
-4. **Visualizer Agent** renders a diagram artifact from the current description.
-5. **Critic Agent** critiques and revises the description in a loop (up to `T`, with early stop when no further changes are needed).
+This project builds publication-oriented methodology diagrams and statistical plots through a five-agent workflow:
 
-The orchestration is implemented with **LangGraph**, and text agents are implemented with **LangChain** chat model interfaces.
-The code supports both `diagram` and `plot` modes.
+1. Retriever
+2. Planner
+3. Stylist
+4. Visualizer
+5. Critic
 
-## Environment (uv)
+Paper: https://arxiv.org/abs/2601.23265
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Run](#run)
+- [Dashboard](#dashboard)
+- [Input JSON Schemas](#input-json-schemas)
+- [Outputs](#outputs)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Citation](#citation)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    S[Source Context S] --> R
+    C[Communicative Intent C] --> R
+    R[Retriever] --> E[Top-K References E]
+    E --> P[Planner]
+    P --> ST[Stylist]
+    ST --> V[Visualizer]
+    V --> I[Generated Artifact I_t]
+    I --> CR[Critic]
+    CR -->|Refined Description P_t+1| V
+```
+
+## Quick Start
+
+### 1) Install dependencies
 
 ```bash
 uv sync
 ```
 
-- `uv sync`: install/update project dependencies from `pyproject.toml` and `uv.lock`.
-
-## Usage
-
-Command guide:
-
-- `cp .env.example .env`: create local environment config file.
-- `uv run paperbanana --help`: show top-level CLI commands.
-- `uv run paperbanana run --help`: show all options for the `run` command.
-- `uv run paperbanana ui`: launch dashboard UI.
-- `uv run paperbanana run ... --mock`: run full pipeline without external API calls.
-- `uv run paperbanana run ... --no-mock`: run full pipeline with OpenRouter models from `.env`.
-
-Configure OpenRouter env first:
+### 2) Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Required/default `.env` values:
+Required/default values in `.env`:
 
 ```env
 OPENROUTER_API_KEY=your_key_here
@@ -53,7 +73,15 @@ OPENROUTER_IMAGE_SIZE=2K
 PAPERBANANA_MAX_ITERATIONS=3
 ```
 
-Mock run (no API call):
+### 3) Verify CLI
+
+```bash
+uv run paperbanana --help
+```
+
+## Run
+
+Mock mode (no external API calls):
 
 ```bash
 uv run paperbanana run \
@@ -63,7 +91,7 @@ uv run paperbanana run \
   --mock
 ```
 
-OpenRouter run (diagram, Gemini + image-preview):
+OpenRouter mode for diagram generation:
 
 ```bash
 uv run paperbanana run \
@@ -73,7 +101,7 @@ uv run paperbanana run \
   --no-mock
 ```
 
-OpenRouter run (plot):
+OpenRouter mode for plot generation:
 
 ```bash
 uv run paperbanana run \
@@ -83,100 +111,140 @@ uv run paperbanana run \
   --no-mock
 ```
 
-Dashboard UI run:
+Useful options:
+
+- `--task-file <path>`
+- `--references-file <path>`
+- `--output-dir <path>`
+- `--style-guide-file <path>`
+- `--model-name <model>`
+- `--temperature <float>`
+- `--top-k <int>`
+- `--max-iterations <int>`
+- `--mock / --no-mock`
+- `--env-file <path>`
+
+## Dashboard
+
+Start UI:
 
 ```bash
 uv run paperbanana ui
 ```
 
-Dashboard usage flow:
-
-1. Run `uv run paperbanana ui` and open the shown local URL (default `http://127.0.0.1:8501`).
-2. In the dashboard, set parameters in **Runtime** (mock mode, model, temperature, top-k, max iterations, output dir).
-3. Enter prompts in **Prompt Input** (source context, communicative intent, mode, optional plot raw_data, style guide).
-4. In **Reference Input**, upload reference images (multiple allowed) and click **Generate references from uploaded images** (available only in `--no-mock` mode).
-5. Review/edit appended `References JSON array` before execution.
-6. Click **Run Pipeline** to execute and inspect artifacts/feedback/result JSON in the same page.
-
-Reference image behavior:
-
-- Uploaded images are stored in a session temp directory (`/tmp/...`) and linked as `reference_image_path`.
-- Auto-generated reference drafts include `source_context`, `communicative_intent`, `domain`, `diagram_type`, and `image_observation`.
-- Image-based reference generation is supported only in non-mock mode; mock mode blocks this action in the UI.
-- Existing references are preserved; generated items are appended with auto-suffixed `ref_id` on collision.
-- Planner uses selected reference images as multimodal inputs when valid paths exist; otherwise it falls back to text-only.
-
-Mock mode scope:
-
-- Mock mode is for offline pipeline/demo behavior and does not guarantee real image understanding quality.
-- Non-mock mode (`--no-mock`) is required for image understanding and OpenRouter image rendering.
-
-Run result metadata:
-
-- `run_result.json` includes `render_backend` and `warnings` so you can verify whether real image generation succeeded.
-
-UI with custom env file:
+Custom env file:
 
 ```bash
 uv run paperbanana ui --env-file .env
 ```
 
-UI host/port override:
+Host/port override:
 
 ```bash
 uv run paperbanana ui --host 0.0.0.0 --port 8501
 ```
 
-Optional overrides:
+Dashboard flow:
 
-- `--task-file <path>`: JSON task input (required).
-- `--references-file <path>`: JSON reference pool (required).
-- `--output-dir <path>`: output directory for generated images and metadata.
-- `--style-guide-file <path>`: custom style guide text file.
-- `--model-name <model>`: override `OPENROUTER_MODEL` for text agents.
-- `--temperature <float>`: non-mock text model temperature.
-- `--top-k <int>`: number of references selected by Retriever.
-- `--max-iterations <int>`: max number of Visualizer-Critic refinement rounds (stops earlier if Critic says no changes needed).
-- `--mock / --no-mock`: choose local mock mode or OpenRouter mode.
-- `--env-file <path>`: use a different env file path.
+1. Configure runtime values in sidebar (mode, model, temperature, Top-K, max iterations).
+2. Enter source context + communicative intent.
+3. Upload reference images in **Reference Input**.
+4. Click **Generate references from uploaded images**.
+5. Review and edit appended `References JSON array`.
+6. Click **Run Pipeline**.
 
-Outputs:
+Reference image notes:
 
-- Iteration artifacts: `outputs/diagram_iter_*.png` or `outputs/plot_iter_*.png`
-- Run metadata: `outputs/run_result.json`
+- Uploaded images are stored in session temp paths (`/tmp/...` or platform-equivalent temp).
+- Generated references include `source_context`, `communicative_intent`, `domain`, `diagram_type`, and `image_observation`.
+- Image-based reference generation is available in `--no-mock` mode.
+- Existing references are preserved; generated entries are appended.
 
-Plot-mode example:
+## Input JSON Schemas
 
-```bash
-uv run paperbanana run \
-  --task-file examples/plot_task.json \
-  --references-file examples/reference_pool.json \
-  --output-dir outputs \
-  --mock
+Task (`examples/task.json`):
+
+```json
+{
+  "source_context": "...",
+  "communicative_intent": "...",
+  "mode": "diagram"
+}
 ```
+
+Plot task (`examples/plot_task.json`):
+
+```json
+{
+  "source_context": "...",
+  "communicative_intent": "...",
+  "mode": "plot",
+  "raw_data": {
+    "x": [1, 2, 3, 4],
+    "y": [62.5, 68.2, 71.9, 74.6]
+  }
+}
+```
+
+Reference pool (`examples/reference_pool.json`):
+
+```json
+[
+  {
+    "ref_id": "ref_001",
+    "source_context": "...",
+    "communicative_intent": "...",
+    "reference_image_path": "/tmp/example.png",
+    "image_observation": "...",
+    "domain": "Agent & Reasoning",
+    "diagram_type": "framework"
+  }
+]
+```
+
+Legacy `reference_artifact` is also supported and mapped to `reference_image_path`.
+
+## Outputs
+
+Generated files in `output_dir`:
+
+- Diagram iterations: `diagram_iter_*.png`
+- Plot iterations: `plot_iter_*.png`
+- Run metadata: `run_result.json`
+
+`run_result.json` includes:
+
+- `final_artifact`
+- `artifact_history`
+- `retrieved_ids`
+- `planner_description`
+- `styled_description`
+- `critic_feedback`
+- `render_backend`
+- `warnings`
 
 ## Troubleshooting
 
-- **"Only auto-generated template text appears"**: switch to non-mock mode and regenerate references; mock mode does not run real image understanding.
-- **"Visualizer Output (mock) appears as the final result"**: this means placeholder rendering was used. In non-mock mode with default strict rendering, diagram generation raises an explicit error instead of silently falling back.
+- If reference metadata looks generic, regenerate in `--no-mock` mode.
+- If output looks like a placeholder, check `run_result.json` `render_backend` and `warnings`.
+- If OpenRouter calls fail, verify `OPENROUTER_API_KEY` and model names in `.env`.
 
-## Testing
+## Development
+
+Run tests:
 
 ```bash
 uv run pytest
 ```
 
-- `uv run pytest`: run test suite.
-
-## Diagnostics (Optional)
+Type check (optional):
 
 ```bash
 uv add --dev basedpyright
+uv run basedpyright
 ```
 
-- `uv add --dev basedpyright`: manage basedpyright as a project dev dependency.
-
-## Reference
+## Citation
 
 ```bibtex
 @misc{zhu2026paperbananaautomatingacademicillustration,
@@ -186,6 +254,6 @@ uv add --dev basedpyright
       eprint={2601.23265},
       archivePrefix={arXiv},
       primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2601.23265},
+      url={https://arxiv.org/abs/2601.23265}
 }
 ```
