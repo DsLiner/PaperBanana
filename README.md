@@ -8,7 +8,7 @@ Implemented workflow:
 2. **Planner Agent** builds an initial diagram description `P`.
 3. **Stylist Agent** refines it with an aesthetic guideline `G` to produce `P*`.
 4. **Visualizer Agent** renders a diagram artifact from the current description.
-5. **Critic Agent** critiques and revises the description in a loop (`T=3` by default).
+5. **Critic Agent** critiques and revises the description in a loop (up to `T`, with early stop when no further changes are needed).
 
 The orchestration is implemented with **LangGraph**, and text agents are implemented with **LangChain** chat model interfaces.
 The code supports both `diagram` and `plot` modes.
@@ -28,6 +28,7 @@ Command guide:
 - `cp .env.example .env`: create local environment config file.
 - `uv run paperbanana --help`: show top-level CLI commands.
 - `uv run paperbanana run --help`: show all options for the `run` command.
+- `uv run paperbanana ui`: run a simple interactive UI (prompt-based).
 - `uv run paperbanana run ... --mock`: run full pipeline without external API calls.
 - `uv run paperbanana run ... --no-mock`: run full pipeline with OpenRouter models from `.env`.
 
@@ -49,6 +50,7 @@ OPENROUTER_IMAGE_MODEL=google/gemini-3-pro-image-preview
 OPENROUTER_IMAGE_MODALITIES=image,text
 OPENROUTER_IMAGE_ASPECT_RATIO=21:9
 OPENROUTER_IMAGE_SIZE=2K
+PAPERBANANA_MAX_ITERATIONS=3
 ```
 
 Mock run (no API call):
@@ -81,6 +83,33 @@ uv run paperbanana run \
   --no-mock
 ```
 
+Simple interactive UI run:
+
+```bash
+uv run paperbanana ui
+```
+
+UI usage flow:
+
+1. Run `uv run paperbanana ui`.
+2. Answer prompts in order:
+   - `Task JSON path` (default: `examples/task.json`)
+   - `Reference pool JSON path` (default: `examples/reference_pool.json`)
+   - `Output directory` (default: `outputs`)
+   - `Use mock mode (no API calls)?`
+   - `Style guide file path (optional)`
+   - `OpenRouter text model` (asked only when mock mode is `No`)
+   - `Temperature`
+   - `Top-K references`
+   - `Max Critic iterations (upper bound)`
+3. The run starts immediately after the last prompt and writes results to the selected output directory.
+
+UI with custom env file:
+
+```bash
+uv run paperbanana ui --env-file .env
+```
+
 Optional overrides:
 
 - `--task-file <path>`: JSON task input (required).
@@ -90,7 +119,7 @@ Optional overrides:
 - `--model-name <model>`: override `OPENROUTER_MODEL` for text agents.
 - `--temperature <float>`: non-mock text model temperature.
 - `--top-k <int>`: number of references selected by Retriever.
-- `--max-iterations <int>`: number of Visualizer-Critic refinement rounds.
+- `--max-iterations <int>`: max number of Visualizer-Critic refinement rounds (stops earlier if Critic says no changes needed).
 - `--mock / --no-mock`: choose local mock mode or OpenRouter mode.
 - `--env-file <path>`: use a different env file path.
 

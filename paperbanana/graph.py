@@ -74,7 +74,7 @@ class PaperBananaGraph:
 
         return graph.compile()
 
-    def _retrieve(self, state: PaperBananaState) -> dict:
+    def _retrieve(self, state: PaperBananaState) -> dict[str, object]:
         top_ids = self.agents.retrieve(
             task=state["task"],
             references=state["reference_pool"],
@@ -92,7 +92,7 @@ class PaperBananaGraph:
             "retrieved_examples": ordered_examples,
         }
 
-    def _plan(self, state: PaperBananaState) -> dict:
+    def _plan(self, state: PaperBananaState) -> dict[str, object]:
         description = self.agents.plan(
             task=state["task"],
             retrieved_examples=state["retrieved_examples"],
@@ -102,7 +102,7 @@ class PaperBananaGraph:
             "current_description": description,
         }
 
-    def _style(self, state: PaperBananaState) -> dict:
+    def _style(self, state: PaperBananaState) -> dict[str, object]:
         styled = self.agents.style(
             task=state["task"],
             planner_description=state["planner_description"],
@@ -113,7 +113,7 @@ class PaperBananaGraph:
             "current_description": styled,
         }
 
-    def _visualize(self, state: PaperBananaState) -> dict:
+    def _visualize(self, state: PaperBananaState) -> dict[str, object]:
         artifact = self.agents.visualize(
             task=state["task"],
             description=state["current_description"],
@@ -125,7 +125,7 @@ class PaperBananaGraph:
             "artifact_history": [*state["artifact_history"], artifact],
         }
 
-    def _critic(self, state: PaperBananaState) -> dict:
+    def _critic(self, state: PaperBananaState) -> dict[str, object]:
         suggestion, revised = self.agents.critic(
             task=state["task"],
             current_description=state["current_description"],
@@ -133,17 +133,18 @@ class PaperBananaGraph:
             iteration=state["iteration"],
         )
 
-        no_changes = (
-            suggestion.strip().lower() == "no changes needed."
-            or revised.strip().lower() == "no changes needed."
+        should_stop = self._critic_requests_stop(
+            suggestion=suggestion,
+            revised_description=revised,
+            current_description=state["current_description"],
         )
 
-        next_description = state["current_description"] if no_changes else revised
+        next_description = state["current_description"] if should_stop else revised
         return {
             "critic_feedback": [*state["critic_feedback"], suggestion],
             "current_description": next_description,
             "iteration": state["iteration"] + 1,
-            "stop_refinement": no_changes,
+            "stop_refinement": should_stop,
         }
 
     def _should_continue(self, state: PaperBananaState) -> str:
@@ -154,5 +155,33 @@ class PaperBananaGraph:
         return "loop"
 
     @staticmethod
-    def _finalize(state: PaperBananaState) -> dict:
+    def _critic_requests_stop(
+        suggestion: str,
+        revised_description: str,
+        current_description: str,
+    ) -> bool:
+        suggestion_lower = suggestion.strip().lower()
+        revised_lower = revised_description.strip().lower()
+
+        stop_markers = (
+            "no changes needed",
+            "no further changes",
+            "looks good",
+            "sufficient",
+            "good as is",
+        )
+        if any(marker in suggestion_lower for marker in stop_markers):
+            return True
+        if any(marker in revised_lower for marker in stop_markers):
+            return True
+
+        if not revised_description.strip():
+            return True
+        if revised_description.strip() == current_description.strip():
+            return True
+
+        return False
+
+    @staticmethod
+    def _finalize(state: PaperBananaState) -> dict[str, object]:
         return {"final_artifact": state["latest_artifact"]}

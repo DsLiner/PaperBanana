@@ -1,5 +1,5 @@
 {
-  "source_context": "The system takes a methodology description and figure caption, retrieves relevant examples from a reference set, plans a detailed description, refines style with an aesthetic guideline, then iteratively renders and critiques the diagram for three rounds.",
+  "source_context": "The system takes a methodology description and figure caption, retrieves relevant examples from a reference set, plans a detailed description, refines style with an aesthetic guideline, then iteratively renders and critiques the diagram up to a configurable maximum number of rounds.",
   "communicative_intent": "Overview of an agentic framework for automated methodology-diagram generation.",
   "mode": "diagram"
 }
