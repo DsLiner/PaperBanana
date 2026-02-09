@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import typer
@@ -35,19 +37,6 @@ def _resolve_positive_int_from_env(
     if resolved < 1:
         raise typer.BadParameter(f"{env_name} must be >= 1.")
     return resolved
-
-
-def _optional_file(raw_path: str) -> Path | None:
-    cleaned = raw_path.strip()
-    if not cleaned:
-        return None
-
-    path = Path(cleaned).expanduser()
-    if not path.exists() or path.is_dir():
-        raise typer.BadParameter(
-            "Style guide file path must point to an existing file."
-        )
-    return path
 
 
 def _execute_run(
@@ -198,48 +187,31 @@ def ui(
     env_file: Path = typer.Option(
         Path(".env"), dir_okay=False, help="Path to .env file"
     ),
+    host: str = typer.Option("127.0.0.1", help="Dashboard host"),
+    port: int = typer.Option(8501, min=1, max=65535, help="Dashboard port"),
 ) -> None:
-    load_dotenv(dotenv_path=env_file, override=False)
+    dashboard_script = Path(__file__).with_name("dashboard.py")
+    env = os.environ.copy()
+    env["PAPERBANANA_ENV_FILE"] = str(env_file)
 
-    task_file = Path(
-        typer.prompt("Task JSON path", default="examples/task.json")
-    ).expanduser()
-    references_file = Path(
-        typer.prompt("Reference pool JSON path", default="examples/reference_pool.json")
-    ).expanduser()
-    output_dir = Path(typer.prompt("Output directory", default="outputs")).expanduser()
-    mock = typer.confirm("Use mock mode (no API calls)?", default=True)
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(dashboard_script),
+        "--server.address",
+        host,
+        "--server.port",
+        str(port),
+    ]
 
-    style_guide_file_raw = typer.prompt("Style guide file path (optional)", default="")
-    style_guide_file = _optional_file(style_guide_file_raw)
-
-    model_name: str | None = None
-    if not mock:
-        model_name = typer.prompt(
-            "OpenRouter text model",
-            default=os.getenv("OPENROUTER_MODEL", "google/gemini-3-pro-preview"),
-        )
-
-    temperature = typer.prompt("Temperature", default=0.3, type=float)
-    top_k = typer.prompt("Top-K references", default=10, type=int)
-    max_iterations = typer.prompt(
-        "Max Critic iterations (upper bound)",
-        default=os.getenv("PAPERBANANA_MAX_ITERATIONS", "3"),
-        type=int,
-    )
-
-    _execute_run(
-        task_file=task_file,
-        references_file=references_file,
-        output_dir=output_dir,
-        style_guide_file=style_guide_file,
-        model_name=model_name,
-        temperature=temperature,
-        top_k=top_k,
-        max_iterations=max_iterations,
-        mock=mock,
-        env_file=env_file,
-    )
+    try:
+        subprocess.run(command, check=True, env=env)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(
+            "Streamlit is not installed. Install with `uv add streamlit`."
+        ) from exc
 
 
 if __name__ == "__main__":

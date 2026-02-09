@@ -28,7 +28,7 @@ Command guide:
 - `cp .env.example .env`: create local environment config file.
 - `uv run paperbanana --help`: show top-level CLI commands.
 - `uv run paperbanana run --help`: show all options for the `run` command.
-- `uv run paperbanana ui`: run a simple interactive UI (prompt-based).
+- `uv run paperbanana ui`: launch dashboard UI.
 - `uv run paperbanana run ... --mock`: run full pipeline without external API calls.
 - `uv run paperbanana run ... --no-mock`: run full pipeline with OpenRouter models from `.env`.
 
@@ -83,31 +83,30 @@ uv run paperbanana run \
   --no-mock
 ```
 
-Simple interactive UI run:
+Dashboard UI run:
 
 ```bash
 uv run paperbanana ui
 ```
 
-UI usage flow:
+Dashboard usage flow:
 
-1. Run `uv run paperbanana ui`.
-2. Answer prompts in order:
-   - `Task JSON path` (default: `examples/task.json`)
-   - `Reference pool JSON path` (default: `examples/reference_pool.json`)
-   - `Output directory` (default: `outputs`)
-   - `Use mock mode (no API calls)?`
-   - `Style guide file path (optional)`
-   - `OpenRouter text model` (asked only when mock mode is `No`)
-   - `Temperature`
-   - `Top-K references`
-   - `Max Critic iterations (upper bound)`
-3. The run starts immediately after the last prompt and writes results to the selected output directory.
+1. Run `uv run paperbanana ui` and open the shown local URL (default `http://127.0.0.1:8501`).
+2. In the dashboard, set parameters in **Runtime** (mock mode, model, temperature, top-k, max iterations, output dir).
+3. Enter prompts in **Prompt Input** (source context, communicative intent, mode, optional plot raw_data, style guide).
+4. Load/edit references in **Reference Input** (file paths + references JSON array).
+5. Click **Run Pipeline** to execute and inspect artifacts/feedback/result JSON in the same page.
 
 UI with custom env file:
 
 ```bash
 uv run paperbanana ui --env-file .env
+```
+
+UI host/port override:
+
+```bash
+uv run paperbanana ui --host 0.0.0.0 --port 8501
 ```
 
 Optional overrides:
