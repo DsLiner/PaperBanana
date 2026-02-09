@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
 import matplotlib
+import requests
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -11,6 +13,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from paperbanana.prompts import (
     PLOT_CODE_SYSTEM_PROMPT,
@@ -24,7 +27,12 @@ from paperbanana.prompts import (
     planner_system_prompt,
     retriever_system_prompt,
 )
-from paperbanana.schema import PipelineConfig, PaperBananaTask, ReferenceExample
+from paperbanana.schema import (
+    PipelineConfig,
+    PaperBananaTask,
+    RawData,
+    ReferenceExample,
+)
 from paperbanana.utils import (
     extract_json_object,
     save_placeholder_diagram,
@@ -37,8 +45,23 @@ class PaperBananaAgents:
         self.config = config
         self._chat_model = None
         if not config.use_mock:
+            if not config.openrouter_api_key:
+                raise RuntimeError(
+                    "OPENROUTER_API_KEY is required in non-mock mode. Set it in .env."
+                )
+
+            headers: dict[str, str] = {}
+            if config.openrouter_site_url:
+                headers["HTTP-Referer"] = config.openrouter_site_url
+            if config.openrouter_app_name:
+                headers["X-Title"] = config.openrouter_app_name
+
             self._chat_model = ChatOpenAI(
-                model=config.model_name, temperature=config.temperature
+                model=config.model_name,
+                temperature=config.temperature,
+                api_key=SecretStr(config.openrouter_api_key),
+                base_url=config.openrouter_base_url,
+                default_headers=headers or None,
             )
 
     def retrieve(
@@ -137,8 +160,90 @@ class PaperBananaAgents:
             )
 
         output_path = output_dir / f"diagram_iter_{iteration + 1:02d}.png"
+        if not self.config.use_mock:
+            if self._visualize_diagram_openrouter(
+                description=description, output_path=output_path
+            ):
+                return str(output_path)
+
         save_placeholder_diagram(description=description, output_path=output_path)
         return str(output_path)
+
+    def _visualize_diagram_openrouter(
+        self, description: str, output_path: Path
+    ) -> bool:
+        if not self.config.openrouter_api_key:
+            return False
+
+        headers = {
+            "Authorization": f"Bearer {self.config.openrouter_api_key}",
+            "Content-Type": "application/json",
+        }
+        if self.config.openrouter_site_url:
+            headers["HTTP-Referer"] = self.config.openrouter_site_url
+        if self.config.openrouter_app_name:
+            headers["X-Title"] = self.config.openrouter_app_name
+
+        payload = {
+            "model": self.config.openrouter_image_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate one publication-ready methodology diagram image. "
+                        "Do not render figure captions in the image. "
+                        f"Diagram description: {description}"
+                    ),
+                }
+            ],
+            "modalities": list(self.config.openrouter_image_modalities),
+            "image_config": {
+                "aspect_ratio": self.config.openrouter_image_aspect_ratio,
+                "image_size": self.config.openrouter_image_size,
+            },
+        }
+
+        endpoint = f"{self.config.openrouter_base_url.rstrip('/')}/chat/completions"
+        try:
+            response = requests.post(
+                endpoint, headers=headers, json=payload, timeout=90
+            )
+            response.raise_for_status()
+            result = response.json()
+        except Exception:
+            return False
+
+        images = result.get("choices", [{}])[0].get("message", {}).get("images", [])
+        if not images:
+            return False
+
+        image_obj = images[0]
+        image_url_obj = image_obj.get("image_url") or image_obj.get("imageUrl") or {}
+        image_url = (
+            image_url_obj.get("url") if isinstance(image_url_obj, dict) else None
+        )
+        if not isinstance(image_url, str) or not image_url:
+            return False
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if image_url.startswith("data:image"):
+            try:
+                data = image_url.split(",", maxsplit=1)[1]
+                output_path.write_bytes(base64.b64decode(data))
+                return True
+            except Exception:
+                return False
+
+        if image_url.startswith("http://") or image_url.startswith("https://"):
+            try:
+                download = requests.get(image_url, timeout=60)
+                download.raise_for_status()
+                output_path.write_bytes(download.content)
+                return True
+            except Exception:
+                return False
+
+        return False
 
     def critic(
         self,
@@ -209,9 +314,18 @@ class PaperBananaAgents:
         return str(output_path)
 
     @staticmethod
-    def _extract_xy(
-        raw_data: dict | list[dict] | None,
-    ) -> tuple[list[float], list[float]]:
+    def _to_float(value: object) -> float | None:
+        if isinstance(value, bool):
+            return None
+        if not isinstance(value, (int, float, str)):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extract_xy(raw_data: RawData) -> tuple[list[float], list[float]]:
         if isinstance(raw_data, dict):
             x_values = raw_data.get("x")
             y_values = raw_data.get("y")
@@ -220,12 +334,19 @@ class PaperBananaAgents:
                 and isinstance(y_values, list)
                 and len(x_values) == len(y_values)
             ):
-                try:
-                    x = [float(item) for item in x_values]
-                    y = [float(item) for item in y_values]
+                x: list[float] = []
+                y: list[float] = []
+                for x_item, y_item in zip(x_values, y_values):
+                    x_value = PaperBananaAgents._to_float(x_item)
+                    y_value = PaperBananaAgents._to_float(y_item)
+                    if x_value is None or y_value is None:
+                        x = []
+                        y = []
+                        break
+                    x.append(x_value)
+                    y.append(y_value)
+                if x and len(x) == len(y):
                     return x, y
-                except (TypeError, ValueError):
-                    pass
 
         if isinstance(raw_data, list):
             x: list[float] = []
@@ -233,21 +354,18 @@ class PaperBananaAgents:
             for item in raw_data:
                 if not isinstance(item, dict):
                     continue
-                if "x" not in item or "y" not in item:
+                x_value = PaperBananaAgents._to_float(item.get("x"))
+                y_value = PaperBananaAgents._to_float(item.get("y"))
+                if x_value is None or y_value is None:
                     continue
-                try:
-                    x.append(float(item["x"]))
-                    y.append(float(item["y"]))
-                except (TypeError, ValueError):
-                    continue
+                x.append(x_value)
+                y.append(y_value)
             if x and len(x) == len(y):
                 return x, y
 
         return [1.0, 2.0, 3.0, 4.0], [2.0, 3.0, 2.5, 4.2]
 
-    def _render_plot_from_data(
-        self, raw_data: dict | list[dict] | None, output_path: Path
-    ) -> None:
+    def _render_plot_from_data(self, raw_data: RawData, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         x, y = self._extract_xy(raw_data)
 
@@ -262,7 +380,7 @@ class PaperBananaAgents:
         plt.close(fig)
 
     def _execute_plot_code(
-        self, code: str, raw_data: dict | list[dict] | None, output_path: Path
+        self, code: str, raw_data: RawData, output_path: Path
     ) -> bool:
         safe_builtins = {
             "len": len,
@@ -314,8 +432,6 @@ class PaperBananaAgents:
             )
 
         image_bytes = Path(image_path).read_bytes()
-        import base64
-
         encoded = base64.b64encode(image_bytes).decode("ascii")
         message = HumanMessage(
             content=[

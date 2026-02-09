@@ -3,16 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 Mode = Literal["diagram", "plot"]
+RawData = dict[str, object] | list[dict[str, object]] | None
 
 
 class PaperBananaTask(BaseModel):
     source_context: str
     communicative_intent: str
     mode: Mode = "diagram"
-    raw_data: dict | list[dict] | None = None
+    raw_data: RawData = None
 
 
 class ReferenceExample(BaseModel):
@@ -26,11 +27,19 @@ class ReferenceExample(BaseModel):
 
 class PipelineConfig(BaseModel):
     output_dir: Path = Path("outputs")
-    model_name: str = "gpt-4o-mini"
+    model_name: str = "google/gemini-3-pro-preview"
     temperature: float = 0.3
     top_k: int = 10
     max_iterations: int = 3
     use_mock: bool = True
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str | None = None
+    openrouter_app_name: str | None = None
+    openrouter_image_model: str = "google/gemini-3-pro-image-preview"
+    openrouter_image_modalities: tuple[str, ...] = ("image", "text")
+    openrouter_image_aspect_ratio: str = "21:9"
+    openrouter_image_size: str = "2K"
 
 
 class PipelineResult(BaseModel):
