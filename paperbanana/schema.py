@@ -40,6 +40,7 @@ class PipelineConfig(BaseModel):
     top_k: int = 10
     max_iterations: int = 3
     use_mock: bool = True
+    strict_non_mock_render: bool = True
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str | None = None
@@ -57,6 +58,8 @@ class PipelineResult(BaseModel):
     planner_description: str
     styled_description: str
     critic_feedback: list[str]
+    render_backend: str
+    warnings: list[str]
 
 
 class PaperBananaState(TypedDict):
@@ -76,3 +79,5 @@ class PaperBananaState(TypedDict):
     iteration: int
     stop_refinement: bool
     final_artifact: str
+    render_backend: str
+    warnings: list[str]

@@ -39,6 +39,8 @@ class PaperBananaGraph:
             "iteration": 0,
             "stop_refinement": False,
             "final_artifact": "",
+            "render_backend": "unknown",
+            "warnings": [],
         }
 
         final_state = self._compiled.invoke(state)
@@ -49,6 +51,8 @@ class PaperBananaGraph:
             planner_description=final_state["planner_description"],
             styled_description=final_state["styled_description"],
             critic_feedback=final_state["critic_feedback"],
+            render_backend=final_state["render_backend"],
+            warnings=final_state["warnings"],
         )
 
     def _build(self):
@@ -114,15 +118,20 @@ class PaperBananaGraph:
         }
 
     def _visualize(self, state: PaperBananaState) -> dict[str, object]:
-        artifact = self.agents.visualize(
+        artifact, render_backend, render_warnings = self.agents.visualize(
             task=state["task"],
             description=state["current_description"],
             output_dir=self.agents.config.output_dir,
             iteration=state["iteration"],
         )
+
+        warnings = list(state["warnings"])
+        warnings.extend(render_warnings)
         return {
             "latest_artifact": artifact,
             "artifact_history": [*state["artifact_history"], artifact],
+            "render_backend": render_backend,
+            "warnings": warnings,
         }
 
     def _critic(self, state: PaperBananaState) -> dict[str, object]:

@@ -94,7 +94,7 @@ Dashboard usage flow:
 1. Run `uv run paperbanana ui` and open the shown local URL (default `http://127.0.0.1:8501`).
 2. In the dashboard, set parameters in **Runtime** (mock mode, model, temperature, top-k, max iterations, output dir).
 3. Enter prompts in **Prompt Input** (source context, communicative intent, mode, optional plot raw_data, style guide).
-4. In **Reference Input**, upload reference images (multiple allowed) and click **Generate references from uploaded images**.
+4. In **Reference Input**, upload reference images (multiple allowed) and click **Generate references from uploaded images** (available only in `--no-mock` mode).
 5. Review/edit appended `References JSON array` before execution.
 6. Click **Run Pipeline** to execute and inspect artifacts/feedback/result JSON in the same page.
 
@@ -102,8 +102,18 @@ Reference image behavior:
 
 - Uploaded images are stored in a session temp directory (`/tmp/...`) and linked as `reference_image_path`.
 - Auto-generated reference drafts include `source_context`, `communicative_intent`, `domain`, `diagram_type`, and `image_observation`.
+- Image-based reference generation is supported only in non-mock mode; mock mode blocks this action in the UI.
 - Existing references are preserved; generated items are appended with auto-suffixed `ref_id` on collision.
 - Planner uses selected reference images as multimodal inputs when valid paths exist; otherwise it falls back to text-only.
+
+Mock mode scope:
+
+- Mock mode is for offline pipeline/demo behavior and does not guarantee real image understanding quality.
+- Non-mock mode (`--no-mock`) is required for image understanding and OpenRouter image rendering.
+
+Run result metadata:
+
+- `run_result.json` includes `render_backend` and `warnings` so you can verify whether real image generation succeeded.
 
 UI with custom env file:
 
@@ -144,6 +154,11 @@ uv run paperbanana run \
   --output-dir outputs \
   --mock
 ```
+
+## Troubleshooting
+
+- **"Only auto-generated template text appears"**: switch to non-mock mode and regenerate references; mock mode does not run real image understanding.
+- **"Visualizer Output (mock) appears as the final result"**: this means placeholder rendering was used. In non-mock mode with default strict rendering, diagram generation raises an explicit error instead of silently falling back.
 
 ## Testing
 

@@ -39,6 +39,8 @@ def test_mock_pipeline_can_stop_early_from_critic_feedback(tmp_path: Path) -> No
     assert len(result.retrieved_ids) == 10
     assert len(result.artifact_history) == 2
     assert Path(result.final_artifact).exists()
+    assert result.render_backend == "mock_placeholder"
+    assert result.warnings
 
 
 def test_mock_plot_mode_generates_plot_artifact(tmp_path: Path) -> None:
@@ -73,6 +75,7 @@ def test_mock_plot_mode_generates_plot_artifact(tmp_path: Path) -> None:
     assert result.final_artifact.endswith("plot_iter_02.png")
     assert len(result.artifact_history) == 2
     assert Path(result.final_artifact).exists()
+    assert result.render_backend == "plot_mock_data"
 
 
 def test_max_iterations_cap_is_respected(tmp_path: Path) -> None:
@@ -104,3 +107,4 @@ def test_max_iterations_cap_is_respected(tmp_path: Path) -> None:
 
     assert len(result.artifact_history) == 1
     assert result.final_artifact.endswith("diagram_iter_01.png")
+    assert result.render_backend == "mock_placeholder"

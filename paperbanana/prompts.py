@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from paperbanana.schema import PaperBananaTask, ReferenceExample
+from paperbanana.schema import Mode, PaperBananaTask, ReferenceExample
 
 RETRIEVER_SYSTEM_PROMPT_DIAGRAM = """
 You are the Retriever Agent from PaperBanana for methodology diagrams.
@@ -100,6 +100,82 @@ Rules:
 - Save the final figure to `output_path`.
 - Ensure labels and title are readable.
 """.strip()
+
+REFERENCE_METADATA_DOMAINS: tuple[str, ...] = (
+    "machine_learning",
+    "nlp",
+    "computer_vision",
+    "robotics",
+    "systems",
+    "biology",
+    "healthcare",
+    "finance",
+    "education",
+    "other",
+)
+
+REFERENCE_METADATA_DIAGRAM_TYPES: tuple[str, ...] = (
+    "pipeline",
+    "framework",
+    "workflow",
+    "architecture",
+    "flowchart",
+    "timeline",
+    "concept_map",
+    "other",
+)
+
+REFERENCE_METADATA_PLOT_TYPES: tuple[str, ...] = (
+    "line_plot",
+    "bar_chart",
+    "scatter_plot",
+    "histogram",
+    "box_plot",
+    "heatmap",
+    "other",
+)
+
+
+def build_reference_metadata_system_prompt(mode: Mode) -> str:
+    diagram_types = (
+        REFERENCE_METADATA_PLOT_TYPES
+        if mode == "plot"
+        else REFERENCE_METADATA_DIAGRAM_TYPES
+    )
+    return (
+        "You analyze one uploaded academic reference image for PaperBanana. "
+        "Return strict JSON only without markdown and without extra keys. "
+        "Required keys: source_context, communicative_intent, domain, diagram_type, image_observation. "
+        "source_context and communicative_intent must describe visible content, not file names or upload process. "
+        "image_observation must contain concrete visual cues such as layout, arrows, axes, legend, labels, or grouping. "
+        f"domain must be one of: {', '.join(REFERENCE_METADATA_DOMAINS)}. "
+        f"diagram_type must be one of: {', '.join(diagram_types)}."
+    )
+
+
+def build_reference_metadata_user_prompt(
+    mode: Mode,
+    ref_id: str,
+    retry_feedback: str | None = None,
+) -> str:
+    prompt = (
+        f"Mode: {mode}\n"
+        f"Reference ID: {ref_id}\n"
+        "Generate metadata with these fields:\n"
+        "1) source_context: concise summary of key components/flow visible in the image.\n"
+        "2) communicative_intent: what message the figure tries to communicate.\n"
+        "3) domain: choose from the allowed categories in the system prompt.\n"
+        "4) diagram_type: choose one allowed type in the system prompt.\n"
+        "5) image_observation: concrete visual evidence (layout, arrows, legend, axes, labels, grouping, color usage).\n"
+        "Return JSON only."
+    )
+    if retry_feedback:
+        prompt += (
+            "\n\nValidation feedback from previous attempt: "
+            f"{retry_feedback}\n"
+            "Fix every issue and return corrected JSON only."
+        )
+    return prompt
 
 
 def retriever_system_prompt(task: PaperBananaTask) -> str:

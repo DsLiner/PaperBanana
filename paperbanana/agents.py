@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +20,15 @@ from pydantic import SecretStr
 
 from paperbanana.prompts import (
     PLOT_CODE_SYSTEM_PROMPT,
+    REFERENCE_METADATA_DIAGRAM_TYPES,
+    REFERENCE_METADATA_DOMAINS,
+    REFERENCE_METADATA_PLOT_TYPES,
     STYLIST_SYSTEM_PROMPT,
     build_critic_user_prompt,
     build_planner_user_prompt,
     build_plot_code_user_prompt,
+    build_reference_metadata_system_prompt,
+    build_reference_metadata_user_prompt,
     build_retriever_user_prompt,
     build_stylist_user_prompt,
     critic_system_prompt,
@@ -44,6 +50,14 @@ from paperbanana.utils import (
 
 
 class PaperBananaAgents:
+    _FORBIDDEN_REFERENCE_PATTERNS: tuple[str, ...] = (
+        "auto-generated",
+        "uploaded image",
+        "upload image",
+        "reference extracted",
+        "could not be fully parsed",
+    )
+
     def __init__(self, config: PipelineConfig):
         self.config = config
         self._chat_model = None
@@ -111,73 +125,205 @@ class PaperBananaAgents:
         mode: Mode,
         ref_id: str,
     ) -> ReferenceExample:
-        image_name = Path(image_path).name
-
         if self.config.use_mock:
-            diagram_type = "plot" if mode == "plot" else "framework"
-            return ReferenceExample(
-                ref_id=ref_id,
-                source_context=(
-                    f"Auto-generated {mode} reference based on uploaded image {image_name}."
-                ),
-                communicative_intent=(
-                    f"Reference visual pattern extracted from {image_name}."
-                ),
-                reference_artifact=image_path,
-                reference_image_path=image_path,
-                image_observation=(
-                    f"Uploaded image {image_name} appears to show {mode}-oriented layout cues."
-                ),
-                domain="Auto-generated",
-                diagram_type=diagram_type,
+            raise RuntimeError(
+                "Image-based reference generation requires use_mock=False (--no-mock)."
             )
 
-        system_prompt = (
-            "You analyze academic reference figures for PaperBanana. "
-            "Return strict JSON only with keys: source_context, communicative_intent, "
-            "domain, diagram_type, image_observation."
-        )
-        user_prompt = (
-            f"Mode: {mode}\n"
-            f"Reference ID: {ref_id}\n"
-            "Generate concise metadata for this reference image."
-        )
+        path = Path(image_path)
+        if not path.exists() or not path.is_file():
+            raise RuntimeError(f"Reference image does not exist: {image_path}")
 
-        raw = self._chat_text(system_prompt, user_prompt, image_paths=[image_path])
-        payload = extract_json_object(raw)
+        image_name = Path(image_path).name
+        retry_feedback: str | None = None
+        last_issues: list[str] = []
+        for _ in range(2):
+            try:
+                raw = self._chat_text(
+                    build_reference_metadata_system_prompt(mode),
+                    build_reference_metadata_user_prompt(
+                        mode=mode,
+                        ref_id=ref_id,
+                        retry_feedback=retry_feedback,
+                    ),
+                    image_paths=[image_path],
+                )
+            except Exception as exc:
+                last_issues = [f"metadata request failed: {exc}"]
+                retry_feedback = "; ".join(last_issues)
+                continue
 
-        source_context = payload.get("source_context")
-        communicative_intent = payload.get("communicative_intent")
-        domain = payload.get("domain")
-        diagram_type = payload.get("diagram_type")
-        image_observation = payload.get("image_observation")
-
-        if not isinstance(source_context, str) or not source_context.strip():
-            source_context = f"Reference extracted from uploaded image {image_name}."
-        if (
-            not isinstance(communicative_intent, str)
-            or not communicative_intent.strip()
-        ):
-            communicative_intent = (
-                f"Communicative intent inferred from uploaded image {image_name}."
+            payload = extract_json_object(raw)
+            parsed, issues = self._validate_reference_metadata_payload(
+                payload=payload,
+                mode=mode,
+                image_name=image_name,
             )
-        if not isinstance(domain, str) or not domain.strip():
-            domain = "Unknown"
-        if not isinstance(diagram_type, str) or not diagram_type.strip():
-            diagram_type = "plot" if mode == "plot" else "framework"
-        if not isinstance(image_observation, str) or not image_observation.strip():
-            image_observation = f"Visual observation could not be fully parsed; using fallback for {image_name}."
+            if not issues:
+                return ReferenceExample(
+                    ref_id=ref_id,
+                    source_context=parsed["source_context"],
+                    communicative_intent=parsed["communicative_intent"],
+                    reference_artifact=image_path,
+                    reference_image_path=image_path,
+                    image_observation=parsed["image_observation"],
+                    domain=parsed["domain"],
+                    diagram_type=parsed["diagram_type"],
+                )
+            last_issues = issues
+            retry_feedback = "; ".join(issues)
 
+        fallback = self._build_reference_metadata_fallback(mode)
+        if last_issues:
+            fallback["image_observation"] = (
+                f"{fallback['image_observation']} Auto-generation fallback was applied."
+            )
         return ReferenceExample(
             ref_id=ref_id,
-            source_context=source_context.strip(),
-            communicative_intent=communicative_intent.strip(),
+            source_context=fallback["source_context"],
+            communicative_intent=fallback["communicative_intent"],
             reference_artifact=image_path,
             reference_image_path=image_path,
-            image_observation=image_observation.strip(),
-            domain=domain.strip(),
-            diagram_type=diagram_type.strip(),
+            image_observation=fallback["image_observation"],
+            domain=fallback["domain"],
+            diagram_type=fallback["diagram_type"],
         )
+
+    @staticmethod
+    def _build_reference_metadata_fallback(mode: Mode) -> dict[str, str]:
+        if mode == "plot":
+            return {
+                "source_context": (
+                    "Reference plot showing quantitative relationships and structured data presentation."
+                ),
+                "communicative_intent": (
+                    "Communicate trends, comparisons, or distributions with clear numeric mapping."
+                ),
+                "domain": "other",
+                "diagram_type": "line_plot",
+                "image_observation": (
+                    "Likely includes chart primitives such as axes, marks, labels, and grouped visual encoding."
+                ),
+            }
+        return {
+            "source_context": (
+                "Reference diagram showing main components and directional information flow."
+            ),
+            "communicative_intent": (
+                "Communicate module roles, process structure, and interaction logic at a glance."
+            ),
+            "domain": "other",
+            "diagram_type": "framework",
+            "image_observation": (
+                "Likely includes grouped blocks, connectors, directional arrows, and labeled regions."
+            ),
+        }
+
+    @staticmethod
+    def _sanitize_reference_text(value: str, image_name: str) -> str:
+        cleaned = value.strip()
+        for marker in PaperBananaAgents._FORBIDDEN_REFERENCE_PATTERNS:
+            cleaned = re.sub(
+                re.escape(marker),
+                "reference figure",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+        cleaned = re.sub(
+            re.escape(image_name),
+            "reference figure",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        return " ".join(cleaned.split())
+
+    @staticmethod
+    def _extract_text_field(payload: dict[str, object], key: str) -> str | None:
+        value = payload.get(key)
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @staticmethod
+    def _normalize_token(value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+        while "__" in normalized:
+            normalized = normalized.replace("__", "_")
+        return normalized
+
+    def _validate_reference_metadata_payload(
+        self,
+        payload: dict[str, object],
+        mode: Mode,
+        image_name: str,
+    ) -> tuple[dict[str, str], list[str]]:
+        issues: list[str] = []
+        parsed: dict[str, str] = {}
+
+        source_context = self._extract_text_field(payload, "source_context")
+        communicative_intent = self._extract_text_field(payload, "communicative_intent")
+        image_observation = self._extract_text_field(payload, "image_observation")
+
+        for key, value, min_len in (
+            ("source_context", source_context, 16),
+            ("communicative_intent", communicative_intent, 16),
+            ("image_observation", image_observation, 20),
+        ):
+            if value is None:
+                issues.append(f"{key} is missing.")
+                continue
+            value = self._sanitize_reference_text(value=value, image_name=image_name)
+            lowered = value.lower()
+            if len(value) < min_len:
+                issues.append(f"{key} is too short.")
+            if any(marker in lowered for marker in self._FORBIDDEN_REFERENCE_PATTERNS):
+                issues.append(f"{key} uses forbidden template phrasing.")
+            parsed[key] = value
+
+        domain_value = self._extract_text_field(payload, "domain")
+        if domain_value is None:
+            parsed["domain"] = "other"
+        else:
+            domain = self._normalize_token(domain_value)
+            domain_aliases = {
+                "ml": "machine_learning",
+                "cv": "computer_vision",
+                "medical": "healthcare",
+            }
+            domain = domain_aliases.get(domain, domain)
+            allowed_domains = set(REFERENCE_METADATA_DOMAINS)
+            if domain not in allowed_domains:
+                parsed["domain"] = "other"
+            else:
+                parsed["domain"] = domain
+
+        diagram_type_value = self._extract_text_field(payload, "diagram_type")
+        if diagram_type_value is None:
+            parsed["diagram_type"] = "line_plot" if mode == "plot" else "framework"
+        else:
+            diagram_type = self._normalize_token(diagram_type_value)
+            diagram_aliases = {
+                "line_chart": "line_plot",
+                "line_graph": "line_plot",
+                "scatter": "scatter_plot",
+                "bar": "bar_chart",
+                "box": "box_plot",
+                "process_flow": "flowchart",
+                "method_pipeline": "pipeline",
+            }
+            diagram_type = diagram_aliases.get(diagram_type, diagram_type)
+            allowed_types = (
+                set(REFERENCE_METADATA_PLOT_TYPES)
+                if mode == "plot"
+                else set(REFERENCE_METADATA_DIAGRAM_TYPES)
+            )
+            if diagram_type not in allowed_types:
+                parsed["diagram_type"] = "line_plot" if mode == "plot" else "framework"
+            else:
+                parsed["diagram_type"] = diagram_type
+
+        return parsed, issues
 
     def plan(
         self, task: PaperBananaTask, retrieved_examples: list[ReferenceExample]
@@ -255,7 +401,7 @@ class PaperBananaAgents:
 
     def visualize(
         self, task: PaperBananaTask, description: str, output_dir: Path, iteration: int
-    ) -> str:
+    ) -> tuple[str, str, list[str]]:
         if task.mode == "plot":
             return self._visualize_plot(
                 task=task,
@@ -265,20 +411,40 @@ class PaperBananaAgents:
             )
 
         output_path = output_dir / f"diagram_iter_{iteration + 1:02d}.png"
-        if not self.config.use_mock:
-            if self._visualize_diagram_openrouter(
-                description=description, output_path=output_path
-            ):
-                return str(output_path)
+        if self.config.use_mock:
+            save_placeholder_diagram(description=description, output_path=output_path)
+            return (
+                str(output_path),
+                "mock_placeholder",
+                ["Mock mode is enabled; generated placeholder diagram image."],
+            )
 
-        save_placeholder_diagram(description=description, output_path=output_path)
-        return str(output_path)
+        try:
+            self._visualize_diagram_openrouter(
+                description=description,
+                output_path=output_path,
+            )
+            return str(output_path), "openrouter_image", []
+        except Exception as exc:
+            if self.config.strict_non_mock_render:
+                raise RuntimeError(
+                    f"Diagram rendering failed in non-mock mode. Reason: {exc}"
+                ) from exc
+            save_placeholder_diagram(description=description, output_path=output_path)
+            return (
+                str(output_path),
+                "mock_placeholder",
+                [
+                    "Non-mock diagram rendering failed; fallback placeholder was generated. "
+                    f"Reason: {exc}"
+                ],
+            )
 
     def _visualize_diagram_openrouter(
         self, description: str, output_path: Path
-    ) -> bool:
+    ) -> None:
         if not self.config.openrouter_api_key:
-            return False
+            raise RuntimeError("OPENROUTER_API_KEY is missing in non-mock mode.")
 
         headers = {
             "Authorization": f"Bearer {self.config.openrouter_api_key}",
@@ -314,41 +480,73 @@ class PaperBananaAgents:
                 endpoint, headers=headers, json=payload, timeout=90
             )
             response.raise_for_status()
-            result = response.json()
-        except Exception:
-            return False
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"HTTP error from OpenRouter image endpoint: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unexpected error during OpenRouter image request: {exc}"
+            ) from exc
 
-        images = result.get("choices", [{}])[0].get("message", {}).get("images", [])
-        if not images:
-            return False
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                "Failed to decode OpenRouter image response JSON."
+            ) from exc
+
+        choices = result.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise RuntimeError("OpenRouter image response has no choices.")
+
+        first_choice = choices[0] if isinstance(choices[0], dict) else {}
+        message = first_choice.get("message") if isinstance(first_choice, dict) else {}
+        if not isinstance(message, dict):
+            message = {}
+
+        images = message.get("images")
+        if not isinstance(images, list) or not images:
+            raise RuntimeError("OpenRouter image response does not contain images.")
 
         image_obj = images[0]
+        if not isinstance(image_obj, dict):
+            raise RuntimeError("OpenRouter image payload format is invalid.")
+
         image_url_obj = image_obj.get("image_url") or image_obj.get("imageUrl") or {}
         image_url = (
             image_url_obj.get("url") if isinstance(image_url_obj, dict) else None
         )
         if not isinstance(image_url, str) or not image_url:
-            return False
+            raise RuntimeError("Failed to parse image URL from OpenRouter response.")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if image_url.startswith("data:image"):
             try:
                 data = image_url.split(",", maxsplit=1)[1]
                 output_path.write_bytes(base64.b64decode(data))
-                return True
-            except Exception:
-                return False
+                return
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to decode OpenRouter data URL image payload: {exc}"
+                ) from exc
 
         if image_url.startswith("http://") or image_url.startswith("https://"):
             try:
                 download = requests.get(image_url, timeout=60)
                 download.raise_for_status()
                 output_path.write_bytes(download.content)
-                return True
-            except Exception:
-                return False
+                return
+            except requests.RequestException as exc:
+                raise RuntimeError(
+                    f"Failed to download generated image from URL: {exc}"
+                ) from exc
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Unexpected download error for generated image: {exc}"
+                ) from exc
 
-        return False
+        raise RuntimeError("Unsupported image URL format in OpenRouter response.")
 
     def critic(
         self,
@@ -402,12 +600,12 @@ class PaperBananaAgents:
         description: str,
         output_dir: Path,
         iteration: int,
-    ) -> str:
+    ) -> tuple[str, str, list[str]]:
         output_path = output_dir / f"plot_iter_{iteration + 1:02d}.png"
 
         if self.config.use_mock:
             self._render_plot_from_data(task.raw_data, output_path)
-            return str(output_path)
+            return str(output_path), "plot_mock_data", []
 
         code_prompt = build_plot_code_user_prompt(description=description, task=task)
         raw_code = self._chat_text(PLOT_CODE_SYSTEM_PROMPT, code_prompt)
@@ -416,7 +614,14 @@ class PaperBananaAgents:
             code=code, raw_data=task.raw_data, output_path=output_path
         ):
             self._render_plot_from_data(task.raw_data, output_path)
-        return str(output_path)
+            return (
+                str(output_path),
+                "plot_data_fallback",
+                [
+                    "Plot code execution failed; used deterministic plot fallback renderer."
+                ],
+            )
+        return str(output_path), "plot_generated_code", []
 
     @staticmethod
     def _to_float(value: object) -> float | None:
