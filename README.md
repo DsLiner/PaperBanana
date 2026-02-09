@@ -5,7 +5,7 @@
 [![uv](https://img.shields.io/badge/dependency%20manager-uv-6e56cf)](https://docs.astral.sh/uv/)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 
-LangGraph + LangChain implementation of **PaperBanana: Automating Academic Illustration for AI Scientists**.
+Unofficial, independent reimplementation inspired by **PaperBanana: Automating Academic Illustration for AI Scientists**.
 
 This project builds publication-oriented methodology diagrams and statistical plots through a five-agent workflow:
 
@@ -16,6 +16,12 @@ This project builds publication-oriented methodology diagrams and statistical pl
 5. Critic
 
 Paper: https://arxiv.org/abs/2601.23265
+
+## Disclaimer
+
+- This repository is a third-party reproduction for study and experimentation.
+- It is **not** the official implementation and is **not affiliated** with the original paper authors.
+- Any implementation differences from the paper are intentional engineering choices for this repo.
 
 ## Table of Contents
 

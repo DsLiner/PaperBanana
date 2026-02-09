@@ -17,7 +17,9 @@ from paperbanana.style_guides import (
     DEFAULT_PLOT_STYLE_GUIDE,
 )
 
-app = typer.Typer(help="PaperBanana: LangGraph implementation of arXiv:2601.23265")
+app = typer.Typer(
+    help="PaperBanana: unofficial reproduction inspired by arXiv:2601.23265"
+)
 
 
 def _resolve_positive_int_from_env(

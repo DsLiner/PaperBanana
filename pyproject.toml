@@ -1,7 +1,7 @@
 [project]
 name = "paperbanana"
 version = "0.1.0"
-description = "LangGraph implementation of the PaperBanana paper"
+description = "Unofficial reproduction inspired by the PaperBanana paper"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
