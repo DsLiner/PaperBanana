@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 Mode = Literal["diagram", "plot"]
 RawData = dict[str, object] | list[dict[str, object]] | None
@@ -21,8 +21,16 @@ class ReferenceExample(BaseModel):
     source_context: str
     communicative_intent: str
     reference_artifact: str | None = None
+    reference_image_path: str | None = None
+    image_observation: str | None = None
     domain: str | None = None
     diagram_type: str | None = None
+
+    @model_validator(mode="after")
+    def _map_legacy_reference_artifact(self) -> "ReferenceExample":
+        if self.reference_image_path is None and self.reference_artifact:
+            self.reference_image_path = self.reference_artifact
+        return self
 
 
 class PipelineConfig(BaseModel):

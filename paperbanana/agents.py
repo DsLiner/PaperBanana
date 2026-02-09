@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 import requests
@@ -28,6 +30,7 @@ from paperbanana.prompts import (
     retriever_system_prompt,
 )
 from paperbanana.schema import (
+    Mode,
     PipelineConfig,
     PaperBananaTask,
     RawData,
@@ -102,6 +105,80 @@ class PaperBananaAgents:
 
         return ordered_ids
 
+    def generate_reference_from_image(
+        self,
+        image_path: str,
+        mode: Mode,
+        ref_id: str,
+    ) -> ReferenceExample:
+        image_name = Path(image_path).name
+
+        if self.config.use_mock:
+            diagram_type = "plot" if mode == "plot" else "framework"
+            return ReferenceExample(
+                ref_id=ref_id,
+                source_context=(
+                    f"Auto-generated {mode} reference based on uploaded image {image_name}."
+                ),
+                communicative_intent=(
+                    f"Reference visual pattern extracted from {image_name}."
+                ),
+                reference_artifact=image_path,
+                reference_image_path=image_path,
+                image_observation=(
+                    f"Uploaded image {image_name} appears to show {mode}-oriented layout cues."
+                ),
+                domain="Auto-generated",
+                diagram_type=diagram_type,
+            )
+
+        system_prompt = (
+            "You analyze academic reference figures for PaperBanana. "
+            "Return strict JSON only with keys: source_context, communicative_intent, "
+            "domain, diagram_type, image_observation."
+        )
+        user_prompt = (
+            f"Mode: {mode}\n"
+            f"Reference ID: {ref_id}\n"
+            "Generate concise metadata for this reference image."
+        )
+
+        raw = self._chat_text(system_prompt, user_prompt, image_paths=[image_path])
+        payload = extract_json_object(raw)
+
+        source_context = payload.get("source_context")
+        communicative_intent = payload.get("communicative_intent")
+        domain = payload.get("domain")
+        diagram_type = payload.get("diagram_type")
+        image_observation = payload.get("image_observation")
+
+        if not isinstance(source_context, str) or not source_context.strip():
+            source_context = f"Reference extracted from uploaded image {image_name}."
+        if (
+            not isinstance(communicative_intent, str)
+            or not communicative_intent.strip()
+        ):
+            communicative_intent = (
+                f"Communicative intent inferred from uploaded image {image_name}."
+            )
+        if not isinstance(domain, str) or not domain.strip():
+            domain = "Unknown"
+        if not isinstance(diagram_type, str) or not diagram_type.strip():
+            diagram_type = "plot" if mode == "plot" else "framework"
+        if not isinstance(image_observation, str) or not image_observation.strip():
+            image_observation = f"Visual observation could not be fully parsed; using fallback for {image_name}."
+
+        return ReferenceExample(
+            ref_id=ref_id,
+            source_context=source_context.strip(),
+            communicative_intent=communicative_intent.strip(),
+            reference_artifact=image_path,
+            reference_image_path=image_path,
+            image_observation=image_observation.strip(),
+            domain=domain.strip(),
+            diagram_type=diagram_type.strip(),
+        )
+
     def plan(
         self, task: PaperBananaTask, retrieved_examples: list[ReferenceExample]
     ) -> str:
@@ -124,7 +201,34 @@ class PaperBananaAgents:
         user_prompt = build_planner_user_prompt(
             task=task, retrieved_examples=retrieved_examples
         )
-        return self._chat_text(planner_system_prompt(task), user_prompt).strip()
+        image_paths = self._collect_reference_image_paths(retrieved_examples)
+        return self._chat_text(
+            planner_system_prompt(task),
+            user_prompt,
+            image_paths=image_paths or None,
+        ).strip()
+
+    @staticmethod
+    def _collect_reference_image_paths(
+        retrieved_examples: list[ReferenceExample],
+    ) -> list[str]:
+        collected: list[str] = []
+        seen: set[str] = set()
+        for ref in retrieved_examples:
+            raw_path = ref.reference_image_path
+            if raw_path is None and ref.reference_artifact:
+                raw_path = ref.reference_artifact
+            if raw_path is None:
+                continue
+            path = Path(raw_path)
+            if not path.exists() or not path.is_file():
+                continue
+            resolved = str(path)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            collected.append(resolved)
+        return collected
 
     def style(
         self, task: PaperBananaTask, planner_description: str, style_guide: str
@@ -279,7 +383,7 @@ class PaperBananaAgents:
             iteration=iteration,
         )
         raw = self._chat_text(
-            critic_system_prompt(task), user_prompt, image_path=image_path
+            critic_system_prompt(task), user_prompt, image_paths=[image_path]
         )
         payload = extract_json_object(raw)
         suggestions = payload.get("critic_suggestions", "No changes needed.")
@@ -413,14 +517,17 @@ class PaperBananaAgents:
         return output_path.exists()
 
     def _chat_text(
-        self, system_prompt: str, user_prompt: str, image_path: str | None = None
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_paths: list[str] | None = None,
     ) -> str:
         if self._chat_model is None:
             raise RuntimeError(
                 "Chat model is not configured. Set use_mock=False with valid API credentials."
             )
 
-        if image_path is None:
+        if not image_paths:
             prompt = ChatPromptTemplate.from_messages(
                 [
                     ("system", "{system_prompt}"),
@@ -432,17 +539,40 @@ class PaperBananaAgents:
                 {"system_prompt": system_prompt, "user_prompt": user_prompt}
             )
 
-        image_bytes = Path(image_path).read_bytes()
-        encoded = base64.b64encode(image_bytes).decode("ascii")
-        message = HumanMessage(
-            content=[
-                {"type": "text", "text": user_prompt},
+        content_blocks: list[str | dict[str, Any]] = [
+            {"type": "text", "text": user_prompt}
+        ]
+        valid_image_count = 0
+        for image_path in image_paths:
+            path = Path(image_path)
+            if not path.exists() or not path.is_file():
+                continue
+            image_bytes = path.read_bytes()
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            mime_type, _ = mimetypes.guess_type(str(path))
+            if not isinstance(mime_type, str) or not mime_type.startswith("image/"):
+                mime_type = "image/png"
+            content_blocks.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encoded}"},
-                },
-            ]
-        )
+                    "image_url": {"url": f"data:{mime_type};base64,{encoded}"},
+                }
+            )
+            valid_image_count += 1
+
+        if valid_image_count == 0:
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", "{system_prompt}"),
+                    ("human", "{user_prompt}"),
+                ]
+            )
+            chain = prompt | self._chat_model | StrOutputParser()
+            return chain.invoke(
+                {"system_prompt": system_prompt, "user_prompt": user_prompt}
+            )
+
+        message = HumanMessage(content=content_blocks)
         response = self._chat_model.invoke(
             [SystemMessage(content=system_prompt), message]
         )

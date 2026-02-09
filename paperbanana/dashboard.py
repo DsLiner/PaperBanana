@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import atexit
 import json
 import importlib
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -17,6 +20,15 @@ from paperbanana.style_guides import (
 )
 
 st = importlib.import_module("streamlit")
+
+_REGISTERED_TEMP_DIRS: set[str] = set()
+
+
+@atexit.register
+def _cleanup_registered_temp_dirs() -> None:
+    for raw_dir in list(_REGISTERED_TEMP_DIRS):
+        shutil.rmtree(raw_dir, ignore_errors=True)
+    _REGISTERED_TEMP_DIRS.clear()
 
 
 def _env_file_path() -> Path:
@@ -34,6 +46,48 @@ def _read_json_file(path: Path) -> Any:
 
 def _to_json_text(value: Any) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False)
+
+
+def _cleanup_session_temp_dir() -> None:
+    previous = st.session_state.get("upload_temp_dir")
+    if isinstance(previous, str) and previous:
+        shutil.rmtree(previous, ignore_errors=True)
+        _REGISTERED_TEMP_DIRS.discard(previous)
+    st.session_state["upload_temp_dir"] = ""
+    st.session_state["uploaded_image_paths"] = []
+
+
+def _store_uploaded_images(uploaded_files: list[Any]) -> list[str]:
+    _cleanup_session_temp_dir()
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="paperbanana_refs_"))
+    _REGISTERED_TEMP_DIRS.add(str(temp_dir))
+    st.session_state["upload_temp_dir"] = str(temp_dir)
+
+    saved_paths: list[str] = []
+    for index, uploaded in enumerate(uploaded_files, start=1):
+        file_name = str(getattr(uploaded, "name", f"reference_{index:03d}.png"))
+        suffix = Path(file_name).suffix.lower() or ".png"
+        target = temp_dir / f"reference_{index:03d}{suffix}"
+
+        data = uploaded.getvalue()
+        if not isinstance(data, bytes):
+            continue
+        target.write_bytes(data)
+        saved_paths.append(str(target))
+
+    st.session_state["uploaded_image_paths"] = saved_paths
+    return saved_paths
+
+
+def _next_ref_id(base: str, used_ids: set[str]) -> str:
+    candidate = base
+    suffix = 2
+    while candidate in used_ids:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    used_ids.add(candidate)
+    return candidate
 
 
 def _ensure_state_defaults() -> None:
@@ -88,6 +142,8 @@ def _ensure_state_defaults() -> None:
     st.session_state["max_iterations"] = int(
         os.getenv("PAPERBANANA_MAX_ITERATIONS", "3")
     )
+    st.session_state["upload_temp_dir"] = ""
+    st.session_state["uploaded_image_paths"] = []
 
 
 def _sync_style_with_mode() -> None:
@@ -137,6 +193,46 @@ def _load_inputs_from_files(task_path_text: str, references_path_text: str) -> N
     st.session_state["style_guide"] = (
         DEFAULT_PLOT_STYLE_GUIDE if mode == "plot" else DEFAULT_DIAGRAM_STYLE_GUIDE
     )
+
+
+def _generate_references_from_uploaded_images(uploaded_files: list[Any]) -> int:
+    if not uploaded_files:
+        raise ValueError("Upload at least one reference image.")
+
+    references_payload = json.loads(str(st.session_state["references_text"]))
+    if not isinstance(references_payload, list):
+        raise ValueError(
+            "References JSON must be an array before appending image references."
+        )
+
+    references_dicts = [item for item in references_payload if isinstance(item, dict)]
+    used_ids = {
+        str(item.get("ref_id"))
+        for item in references_dicts
+        if isinstance(item.get("ref_id"), str)
+    }
+
+    image_paths = _store_uploaded_images(uploaded_files)
+    if not image_paths:
+        raise ValueError("Failed to save uploaded images.")
+
+    config = _build_config_from_ui()
+    agents = PaperBananaAgents(config=config)
+
+    mode_value = str(st.session_state["mode"])
+    mode: Literal["diagram", "plot"] = "plot" if mode_value == "plot" else "diagram"
+
+    for index, image_path in enumerate(image_paths, start=1):
+        ref_id = _next_ref_id(f"img_ref_{index:03d}", used_ids)
+        generated = agents.generate_reference_from_image(
+            image_path=image_path,
+            mode=mode,
+            ref_id=ref_id,
+        )
+        references_dicts.append(generated.model_dump())
+
+    st.session_state["references_text"] = _to_json_text(references_dicts)
+    return len(image_paths)
 
 
 def _build_config_from_ui() -> PipelineConfig:
@@ -310,6 +406,30 @@ def main() -> None:
                 st.success("Loaded task and references from files.")
             except Exception as exc:
                 st.error(str(exc))
+
+        uploaded_images = st.file_uploader(
+            "Upload reference images",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+        )
+        if st.button("Generate references from uploaded images"):
+            try:
+                generated_count = _generate_references_from_uploaded_images(
+                    uploaded_files=list(uploaded_images or [])
+                )
+                st.success(
+                    f"Generated {generated_count} references and appended them to References JSON."
+                )
+            except Exception as exc:
+                st.error(str(exc))
+
+        temp_paths = st.session_state.get("uploaded_image_paths", [])
+        if isinstance(temp_paths, list) and temp_paths:
+            st.caption("Current session temp image paths")
+            for image_path in temp_paths:
+                if isinstance(image_path, str):
+                    st.markdown(f"- `{image_path}`")
+
         st.text_area("References JSON array", key="references_text", height=420)
 
     if run_clicked:

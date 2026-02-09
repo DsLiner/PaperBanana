@@ -35,6 +35,7 @@ produce a detailed textual description for a methodology diagram.
 Requirements:
 - Be explicit about modules, arrows, grouping, and data flow.
 - Include visual details: colors, line styles, icon hints, and layout.
+- When reference images are provided, ground structure and visual composition in them.
 - Keep content faithful to source context and communicative intent.
 """.strip()
 
@@ -47,6 +48,7 @@ produce a detailed textual description of the target plot.
 Requirements:
 - Preserve quantitative fidelity to raw data.
 - Specify mapping to axes/series/legend clearly.
+- When reference images are provided, use them as styling and composition cues.
 - Include concise visual requirements.
 """.strip()
 
@@ -137,6 +139,9 @@ def build_retriever_user_prompt(
                     f"Reference ID: {ref.ref_id}",
                     f"Caption/Intent: {ref.communicative_intent}",
                     f"Summary: {ref.source_context}",
+                    f"Domain: {ref.domain or 'N/A'}",
+                    f"Diagram type: {ref.diagram_type or 'N/A'}",
+                    f"Image observation: {ref.image_observation or 'N/A'}",
                 ]
             )
         )
@@ -159,9 +164,22 @@ def build_retriever_user_prompt(
 def build_planner_user_prompt(
     task: PaperBananaTask, retrieved_examples: list[ReferenceExample]
 ) -> str:
-    references = "\n\n".join(
-        f"- {ref.ref_id}: {ref.communicative_intent}" for ref in retrieved_examples
-    )
+    reference_blocks: list[str] = []
+    for ref in retrieved_examples:
+        reference_blocks.append(
+            "\n".join(
+                [
+                    f"Reference ID: {ref.ref_id}",
+                    f"Intent: {ref.communicative_intent}",
+                    f"Summary: {ref.source_context}",
+                    f"Domain: {ref.domain or 'N/A'}",
+                    f"Diagram type: {ref.diagram_type or 'N/A'}",
+                    f"Image observation: {ref.image_observation or 'N/A'}",
+                    f"Image path: {ref.reference_image_path or 'N/A'}",
+                ]
+            )
+        )
+    references = "\n\n---\n\n".join(reference_blocks)
     payload = (
         f"Source context:\n{task.source_context}\n\n"
         f"Communicative intent:\n{task.communicative_intent}\n\n"
