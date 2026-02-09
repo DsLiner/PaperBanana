@@ -116,7 +116,8 @@ class PaperBananaAgents:
                 "Create a left-to-right methodology diagram with five agents: Retriever, Planner, Stylist, "
                 "Visualizer, and Critic. Include source context S and communicative intent C as inputs. "
                 "Show retrieved examples E feeding Planner, style guideline G feeding Stylist, and a refinement "
-                "loop between Visualizer and Critic for T=3 rounds. Keep labels concise and publication-ready. "
+                "loop between Visualizer and Critic until the Critic signals completion, up to "
+                f"T={self.config.max_iterations} rounds. Keep labels concise and publication-ready. "
                 f"Retrieved references: {example_text}."
             )
 
@@ -254,7 +255,7 @@ class PaperBananaAgents:
     ) -> tuple[str, str]:
         if self.config.use_mock:
             if task.mode == "plot":
-                if iteration + 1 < self.config.max_iterations:
+                if iteration == 0:
                     revised = (
                         f"{current_description}\n\n"
                         f"Refinement pass {iteration + 1}: improve axis readability, preserve all data points, "
@@ -263,7 +264,7 @@ class PaperBananaAgents:
                     return "Improve value readability and labeling clarity.", revised
                 return "No changes needed.", "No changes needed."
 
-            if iteration + 1 < self.config.max_iterations:
+            if iteration == 0:
                 revised = (
                     f"{current_description}\n\n"
                     f"Refinement pass {iteration + 1}: improve arrow clarity, remove label clutter, "
